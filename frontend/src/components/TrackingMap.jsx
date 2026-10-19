@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+
 import {
     MapContainer,
     TileLayer,
@@ -6,698 +7,655 @@ import {
     Popup,
     Polyline,
     Tooltip,
-    useMap,
+    useMap
 } from "react-leaflet";
+
 import L from "leaflet";
 
 import {
     getSimulationMovement,
-    getSimulationRoute,
+    getSimulationRoute
 } from "../services/simulationService";
 
 import "leaflet/dist/leaflet.css";
 
 
-const trainIcon = new L.DivIcon({
+const trainIcon = L.divIcon({
     className: "simulation-train-icon",
     html: "🚂",
     iconSize: [34, 34],
     iconAnchor: [17, 17],
+    popupAnchor: [0, -18]
 });
 
-const truckIcon = new L.DivIcon({
+
+const truckIcon = L.divIcon({
     className: "simulation-truck-icon",
-    html: "🚚",
+    html: "🚛",
     iconSize: [34, 34],
     iconAnchor: [17, 17],
+    popupAnchor: [0, -18]
 });
 
-const sourceIcon = new L.DivIcon({
+
+const sourceIcon = L.divIcon({
     className: "route-source-icon",
     html: "●",
-    iconSize: [20, 20],
-    iconAnchor: [10, 10],
+    iconSize: [18, 18],
+    iconAnchor: [9, 9]
 });
 
-const destinationIcon = new L.DivIcon({
+
+const destinationIcon = L.divIcon({
     className: "route-destination-icon",
     html: "◆",
-    iconSize: [20, 20],
-    iconAnchor: [10, 10],
+    iconSize: [18, 18],
+    iconAnchor: [9, 9]
 });
 
 
-function fitToPoints(map, points, maxZoom = 8) {
-    if (!points || points.length === 0) {
-        return;
-    }
-
-    const valid = points.filter(
-        (point) =>
-            Array.isArray(point) &&
-            Number.isFinite(Number(point[0])) &&
-            Number.isFinite(Number(point[1]))
-    );
-
-    if (valid.length === 0) {
-        return;
-    }
-
-    const bounds = L.latLngBounds(valid);
-
-    if (bounds.isValid()) {
-        map.fitBounds(bounds, {
-            padding: [50, 50],
-            maxZoom,
-            animate: true,
-        });
-    }
-}
-
-
-function FleetFitter({ movements, selectedMovementCode }) {
+function FleetMapFitter({ positions }) {
     const map = useMap();
-    const hasFitted = useRef(false);
+    const [fitted, setFitted] = useState(false);
 
     useEffect(() => {
         if (
-            hasFitted.current ||
-            selectedMovementCode ||
-            !movements ||
-            movements.length === 0
+            fitted ||
+            !positions ||
+            positions.length === 0
         ) {
             return;
         }
 
-        const points = movements
-            .map((item) => [
-                Number(item.latitude),
-                Number(item.longitude),
-            ])
-            .filter(
-                (point) =>
-                    Number.isFinite(point[0]) &&
-                    Number.isFinite(point[1])
-            );
-
-        if (points.length === 0) {
-            return;
-        }
-
-        fitToPoints(map, points, 7);
-        hasFitted.current = true;
-    }, [map, movements, selectedMovementCode]);
-
-    return null;
-}
-
-
-function SelectedFitter({ points, active }) {
-    const map = useMap();
-    const lastFocusKey = useRef("");
-
-    useEffect(() => {
-        if (!active || points.length < 2) {
-            return;
-        }
-
-        const focusKey = points
-            .map(
-                (point) =>
-                    `${point[0]},${point[1]}`
-            )
-            .join("|");
-
-        if (lastFocusKey.current === focusKey) {
-            return;
-        }
-
-        lastFocusKey.current = focusKey;
-        fitToPoints(map, points, 10);
-    }, [map, points, active]);
-
-    return null;
-}
-
-
-function getMovementCode(item) {
-    return String(
-        item?.movement_code ??
-        item?.movementCode ??
-        ""
-    ).toUpperCase();
-}
-
-
-function getRouteId(item) {
-    return item?.route_id ?? item?.routeId ?? null;
-}
-
-
-function getPosition(item) {
-    const lat = Number(
-        item?.latitude ??
-        item?.current_latitude ??
-        item?.lat
-    );
-
-    const lng = Number(
-        item?.longitude ??
-        item?.current_longitude ??
-        item?.lng ??
-        item?.lon
-    );
-
-    if (
-        !Number.isFinite(lat) ||
-        !Number.isFinite(lng)
-    ) {
-        return null;
-    }
-
-    return [lat, lng];
-}
-
-
-function getSource(item) {
-    const lat = Number(item?.source_lat);
-    const lng = Number(item?.source_lon);
-
-    if (
-        Number.isFinite(lat) &&
-        Number.isFinite(lng)
-    ) {
-        return [lat, lng];
-    }
-
-    return null;
-}
-
-
-function getDestination(item) {
-    const lat = Number(item?.destination_lat);
-    const lng = Number(item?.destination_lon);
-
-    if (
-        Number.isFinite(lat) &&
-        Number.isFinite(lng)
-    ) {
-        return [lat, lng];
-    }
-
-    return null;
-}
-
-
-function routePoints(route) {
-    const raw =
-        route?.points ??
-        route?.route_points ??
-        route?.routePoints ??
-        route ??
-        [];
-
-    if (!Array.isArray(raw)) {
-        return [];
-    }
-
-    return raw
-        .map((point) => {
-            if (Array.isArray(point)) {
-                return [
-                    Number(point[0]),
-                    Number(point[1]),
-                ];
-            }
-
-            return [
-                Number(
-                    point?.latitude ??
-                    point?.lat
-                ),
-                Number(
-                    point?.longitude ??
-                    point?.lng ??
-                    point?.lon
-                ),
-            ];
-        })
-        .filter(
+        const validPositions = positions.filter(
             (point) =>
                 Number.isFinite(point[0]) &&
                 Number.isFinite(point[1])
         );
+
+        if (validPositions.length === 0) {
+            return;
+        }
+
+        const bounds = L.latLngBounds(
+            validPositions
+        );
+
+        map.fitBounds(bounds, {
+            padding: [50, 50],
+            maxZoom: 7
+        });
+
+        setFitted(true);
+    }, [map, positions, fitted]);
+
+    return null;
 }
 
 
-export default function TrackingMap({
-    replayState = null,
-    simulationState = null,
-    onMovementSelect,
-    selectedMovementCode,
+function SelectedRouteFitter({ points }) {
+    const map = useMap();
+
+    useEffect(() => {
+        if (!points || points.length < 2) {
+            return;
+        }
+
+        const bounds = L.latLngBounds(points);
+
+        map.fitBounds(bounds, {
+            padding: [50, 50],
+            maxZoom: 10
+        });
+    }, [map, points]);
+
+    return null;
+}
+
+
+function TrackingMap({
+    replayState = null
 }) {
-    const state = replayState ?? simulationState;
+    const [movementCode, setMovementCode] =
+        useState("");
 
-    const trains = Array.isArray(state?.trains)
-        ? state.trains
-        : [];
+    const [searchCode, setSearchCode] =
+        useState("");
 
-    const trucks = Array.isArray(state?.trucks)
-        ? state.trucks
-        : [];
+    const [movement, setMovement] =
+        useState(null);
+
+    const [loading, setLoading] =
+        useState(false);
+
+    const [routesByMovement, setRoutesByMovement] =
+        useState({});
+
+    const [routeLoading, setRouteLoading] =
+        useState(false);
+
+    const [error, setError] =
+        useState("");
+
+    const [focusMovement, setFocusMovement] =
+        useState(false);
+
+
+    const trains =
+        Array.isArray(replayState?.trains)
+            ? replayState.trains
+            : [];
+
+    const trucks =
+        Array.isArray(replayState?.trucks)
+            ? replayState.trucks
+            : [];
+
 
     const allMovements = useMemo(
-        () => [...trains, ...trucks],
+        () => [
+            ...trains,
+            ...trucks
+        ],
         [trains, trucks]
     );
 
-    const selectedCode = String(
-        selectedMovementCode ?? ""
-    ).trim().toUpperCase();
 
-    const [searchCode, setSearchCode] =
-        useState(selectedCode);
+    const routeTargets = useMemo(() => {
+        const targets = {};
 
-    const [movementDetails, setMovementDetails] =
-        useState(null);
+        allMovements.forEach((item) => {
+            const code = String(
+                item.movement_code
+            ).toUpperCase();
 
-    const [routeCache, setRouteCache] =
-        useState({});
+            const routeId =
+                item.route_id ??
+                item.routeId;
 
-    const [error, setError] = useState("");
-    const [loading, setLoading] = useState(false);
+            if (code && routeId) {
+                targets[code] = String(routeId);
+            }
+        });
 
-    const selectedFromState = useMemo(
-        () =>
-            allMovements.find(
-                (item) =>
-                    getMovementCode(item) ===
-                    selectedCode
-            ) ?? null,
-        [allMovements, selectedCode]
-    );
+        return targets;
+    }, [allMovements]);
+
+
+    const routeTargetsKey =
+        Object.entries(routeTargets)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([code, routeId]) => `${code}:${routeId}`)
+            .join("|");
+
 
     const selectedMovement =
-        movementDetails ??
-        selectedFromState;
+        allMovements.find(
+            (item) =>
+                String(
+                    item.movement_code
+                ).toUpperCase() ===
+                String(
+                    movementCode
+                ).toUpperCase()
+        ) || null;
+
+
+    const markerPositions = useMemo(
+        () =>
+            allMovements
+                .map((item) => [
+                    Number(item.latitude),
+                    Number(item.longitude)
+                ])
+                .filter(
+                    (point) =>
+                        Number.isFinite(point[0]) &&
+                        Number.isFinite(point[1])
+                ),
+        [allMovements]
+    );
+
+
+    const selectedType =
+        String(
+            selectedMovement?.movement_type ||
+            selectedMovement?.mode ||
+            ""
+        ).toUpperCase();
+
+
+    const isSelectedTruck =
+        selectedType === "ROAD" ||
+        selectedType === "TRUCK";
+
 
     useEffect(() => {
-        if (!selectedCode) {
-            setMovementDetails(null);
+        if (!movementCode) {
             return;
         }
 
-        const fromState = allMovements.find(
-            (item) =>
-                getMovementCode(item) ===
-                selectedCode
-        );
+        const currentMovement =
+            allMovements.find(
+                (item) =>
+                    String(
+                        item.movement_code
+                    ).toUpperCase() ===
+                    String(
+                        movementCode
+                    ).toUpperCase()
+            );
 
-        if (fromState) {
-            setMovementDetails(fromState);
+        if (currentMovement) {
+            setMovement(currentMovement);
+        }
+    }, [movementCode, allMovements]);
+
+
+    useEffect(() => {
+        if (!movementCode) {
             return;
         }
 
         let cancelled = false;
 
-        setLoading(true);
-        setError("");
+        const loadMovementDetails = async () => {
+            try {
+                setLoading(true);
+                setError("");
 
-        getSimulationMovement(selectedCode)
-            .then((data) => {
-                if (!cancelled) {
-                    setMovementDetails(
-                        data?.movement ??
-                        data ??
-                        null
+                const data =
+                    await getSimulationMovement(
+                        movementCode
                     );
+
+                if (!cancelled) {
+                    setMovement((current) => ({
+                        ...(current || {}),
+                        ...(data || {})
+                    }));
                 }
-            })
-            .catch((err) => {
+            } catch (err) {
+                console.error(
+                    "Failed to load movement:",
+                    err
+                );
+
                 if (!cancelled) {
                     setError(
-                        err?.response?.data?.detail ??
-                        "Movement not found."
+                        "Unable to load movement details."
                     );
-                    setMovementDetails(null);
                 }
-            })
-            .finally(() => {
+            } finally {
                 if (!cancelled) {
                     setLoading(false);
                 }
-            });
+            }
+        };
+
+        loadMovementDetails();
 
         return () => {
             cancelled = true;
         };
-    }, [selectedCode, allMovements]);
+    }, [movementCode]);
+
+
+    const movementIsTruck =
+        String(
+            movement?.movement_type ||
+            movement?.mode ||
+            movement?.transport_mode ||
+            selectedMovement?.movement_type ||
+            ""
+        ).toUpperCase() === "ROAD";
+
 
     useEffect(() => {
         let cancelled = false;
 
-        const ids = [
-            ...new Set(
-                allMovements
-                    .map(getRouteId)
-                    .filter(
-                        (id) =>
-                            id !== null &&
-                            id !== undefined
-                    )
-                    .map(String)
-            ),
-        ];
-
-        if (selectedMovement) {
-            const selectedRouteId =
-                getRouteId(selectedMovement);
-
-            if (
-                selectedRouteId !== null &&
-                selectedRouteId !== undefined
-            ) {
-                ids.push(
-                    String(selectedRouteId)
-                );
-            }
-        }
-
-        const uniqueIds = [
-            ...new Set(ids),
-        ];
-
-        const missing = uniqueIds.filter(
-            (id) => !routeCache[id]
-        );
-
-        if (missing.length === 0) {
-            return;
-        }
-
-        Promise.all(
-            missing.map(async (id) => {
-                try {
-                    const data =
-                        await getSimulationRoute(
-                            id
-                        );
-
-                    return [
-                        id,
-                        data?.points ??
-                        data?.route_points ??
-                        data?.routePoints ??
-                        data ??
-                        [],
-                    ];
-                } catch {
-                    return [id, []];
-                }
-            })
-        ).then((entries) => {
-            if (cancelled) {
+        const loadAllRoutes = async () => {
+            if (allMovements.length === 0) {
+                setRoutesByMovement({});
                 return;
             }
 
-            setRouteCache((current) => {
-                const next = {
-                    ...current,
-                };
+            setRouteLoading(true);
 
-                entries.forEach(
-                    ([id, points]) => {
-                        next[id] = routePoints(
-                            points
-                        );
+            try {
+                const uniqueRouteIds = [
+                    ...new Set(
+                        Object.values(routeTargets)
+                    )
+                ];
+
+                const routeResults =
+                    await Promise.all(
+                        uniqueRouteIds.map(
+                            async (routeId) => {
+                                try {
+                                    const routeData =
+                                        await getSimulationRoute(
+                                            routeId
+                                        );
+
+                                    const routePoints =
+                                        routeData?.points ??
+                                        routeData?.route_points ??
+                                        routeData?.routePoints ??
+                                        routeData;
+
+                                    if (!Array.isArray(routePoints)) {
+                                        return {
+                                            routeId,
+                                            points: []
+                                        };
+                                    }
+
+                                    const points = routePoints
+                                        .map((point) => {
+                                            if (Array.isArray(point)) {
+                                                return [
+                                                    Number(point[0]),
+                                                    Number(point[1])
+                                                ];
+                                            }
+
+                                            return [
+                                                Number(
+                                                    point.latitude ??
+                                                    point.lat
+                                                ),
+                                                Number(
+                                                    point.longitude ??
+                                                    point.lng ??
+                                                    point.lon
+                                                )
+                                            ];
+                                        })
+                                        .filter(
+                                            (point) =>
+                                                Number.isFinite(point[0]) &&
+                                                Number.isFinite(point[1])
+                                        );
+
+                                    return {
+                                        routeId,
+                                        points
+                                    };
+                                } catch (err) {
+                                    console.error(
+                                        `Failed to load route ${routeId}:`,
+                                        err
+                                    );
+
+                                    return {
+                                        routeId,
+                                        points: []
+                                    };
+                                }
+                            }
+                        )
+                    );
+
+                if (cancelled) {
+                    return;
+                }
+
+                const pointsByRouteId = {};
+
+                routeResults.forEach((result) => {
+                    pointsByRouteId[
+                        String(result.routeId)
+                    ] = result.points;
+                });
+
+                const routeMap = {};
+
+                Object.entries(routeTargets).forEach(
+                    ([movementKey, routeId]) => {
+                        routeMap[movementKey] =
+                            pointsByRouteId[
+                                String(routeId)
+                            ] || [];
                     }
                 );
 
-                return next;
-            });
-        });
+                setRoutesByMovement(routeMap);
+            } finally {
+                if (!cancelled) {
+                    setRouteLoading(false);
+                }
+            }
+        };
+
+        loadAllRoutes();
 
         return () => {
             cancelled = true;
         };
-    }, [allMovements, selectedMovement]);
+    }, [routeTargetsKey]);
 
-    const selectedRouteId =
-        getRouteId(selectedMovement);
 
-    const selectedRoute = useMemo(() => {
-        if (
-            selectedRouteId === null ||
-            selectedRouteId === undefined
-        ) {
-            return [];
+    const selectedRoute =
+        routesByMovement[
+            String(movementCode).toUpperCase()
+        ] || [];
+
+    // Prefer the exact endpoints of the selected route. If route geometry
+    // is missing, use the source/destination coordinates returned by replay.py.
+    const sourcePosition = useMemo(() => {
+        if (selectedRoute.length > 0) {
+            return selectedRoute[0];
         }
 
-        return (
-            routeCache[
-                String(selectedRouteId)
-            ] ?? []
+        const lat = Number(
+            movement?.source_lat ?? selectedMovement?.source_lat
         );
-    }, [routeCache, selectedRouteId]);
+        const lng = Number(
+            movement?.source_lon ?? selectedMovement?.source_lon
+        );
 
-    const selectedSource =
-        getSource(selectedMovement) ??
-        selectedRoute[0] ??
-        null;
+        return Number.isFinite(lat) && Number.isFinite(lng)
+            ? [lat, lng]
+            : null;
+    }, [selectedRoute, movement, selectedMovement]);
 
-    const selectedDestination =
-        getDestination(selectedMovement) ??
-        selectedRoute[
-            selectedRoute.length - 1
-        ] ??
-        null;
+    const destinationPosition = useMemo(() => {
+        if (selectedRoute.length > 0) {
+            return selectedRoute[selectedRoute.length - 1];
+        }
 
-    const dailyRoutes = useMemo(() => {
-        const result = [];
-        const seen = new Set();
+        const lat = Number(
+            movement?.destination_lat ?? selectedMovement?.destination_lat
+        );
+        const lng = Number(
+            movement?.destination_lon ?? selectedMovement?.destination_lon
+        );
 
-        allMovements.forEach((movement) => {
-            const routeId = getRouteId(movement);
+        return Number.isFinite(lat) && Number.isFinite(lng)
+            ? [lat, lng]
+            : null;
+    }, [selectedRoute, movement, selectedMovement]);
 
-            if (
-                routeId === null ||
-                routeId === undefined
-            ) {
-                return;
-            }
 
-            const key = String(routeId);
+    const sourceName =
+        movement?.source_name ??
+        movement?.source ??
+        movement?.origin ??
+        selectedMovement?.source_name ??
+        "-";
 
-            if (seen.has(key)) {
-                return;
-            }
 
-            seen.add(key);
+    const destinationName =
+        movement?.destination_name ??
+        movement?.destination ??
+        selectedMovement?.destination_name ??
+        "-";
 
-            let points =
-                routeCache[key] ?? [];
 
-            if (points.length < 2) {
-                const source =
-                    getSource(movement);
-                const destination =
-                    getDestination(movement);
-
-                if (source && destination) {
-                    points = [
-                        source,
-                        destination,
-                    ];
-                }
-            }
-
-            if (points.length >= 2) {
-                result.push({
-                    routeId: key,
-                    points,
-                });
-            }
-        });
-
-        return result;
-    }, [allMovements, routeCache]);
-
-    const handleSearch = (event) => {
+    const submitSearch = (event) => {
         event.preventDefault();
 
-        const code =
+        const value =
             searchCode
                 .trim()
                 .toUpperCase();
 
-        if (!code) {
-            return;
-        }
-
-        const exists =
-            allMovements.some(
-                (item) =>
-                    getMovementCode(item) ===
-                    code
-            );
-
-        if (!exists) {
-            setError(
-                `${code} has no movement on the selected simulator day.`
-            );
+        if (!value) {
             return;
         }
 
         setError("");
-
-        if (onMovementSelect) {
-            onMovementSelect(code);
-        }
+        setMovementCode(value);
+        setFocusMovement(true);
     };
+
 
     const clearSelection = () => {
+        setMovementCode("");
         setSearchCode("");
-
-        if (onMovementSelect) {
-            onMovementSelect("");
-        }
-
-        setMovementDetails(null);
+        setMovement(null);
+        setFocusMovement(false);
         setError("");
     };
 
-    const mapCenter =
-        getPosition(allMovements[0]) ??
-        [20.5937, 78.9629];
 
-    const simulatorTime =
-        state?.simulation_time ??
-        state?.requested_timestamp ??
-        null;
+    const displayMovement =
+        selectedMovement || movement;
+
+
+    const mapCenter =
+        markerPositions.length > 0
+            ? markerPositions[0]
+            : [20.5937, 78.9629];
+
 
     return (
         <div
             style={{
                 width: "100%",
                 height: "100%",
-                minHeight: 620,
-                position: "relative",
+                position: "relative"
             }}
         >
-            <div
+
+            {/* TRACKING SEARCH CONTROL */}
+            <form
+                onSubmit={submitSearch}
                 style={{
                     position: "absolute",
                     zIndex: 1000,
                     top: 12,
                     right: 12,
-                    background: "white",
-                    padding: 9,
-                    borderRadius: 7,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    background: "#ffffff",
+                    padding: 8,
+                    borderRadius: 6,
                     boxShadow:
-                        "0 2px 12px rgba(0,0,0,.18)",
+                        "0 2px 10px rgba(0,0,0,0.18)"
                 }}
             >
-                <form
-                    onSubmit={handleSearch}
+
+                <input
+                    value={searchCode}
+                    onChange={(event) =>
+                        setSearchCode(
+                            event.target.value
+                        )
+                    }
+                    placeholder="Movement ID"
                     style={{
-                        display: "flex",
-                        gap: 6,
+                        width: 155,
+                        border:
+                            "1px solid #ccc",
+                        borderRadius: 4,
+                        padding:
+                            "7px 9px"
+                    }}
+                />
+
+                <button
+                    type="submit"
+                    style={{
+                        border: "none",
+                        borderRadius: 4,
+                        padding:
+                            "7px 12px",
+                        cursor: "pointer"
                     }}
                 >
-                    <input
-                        value={searchCode}
-                        onChange={(event) =>
-                            setSearchCode(
-                                event.target.value
-                            )
-                        }
-                        placeholder="Movement ID"
-                        style={{
-                            width: 155,
-                            padding: "7px 9px",
-                            border:
-                                "1px solid #d1d5db",
-                            borderRadius: 5,
-                        }}
-                    />
+                    Track
+                </button>
 
+                {focusMovement && (
                     <button
-                        type="submit"
+                        type="button"
+                        onClick={clearSelection}
                         style={{
-                            border: 0,
-                            borderRadius: 5,
+                            border:
+                                "1px solid #ccc",
+                            background:
+                                "#ffffff",
+                            borderRadius: 4,
                             padding:
-                                "7px 12px",
-                            cursor: "pointer",
+                                "7px 10px",
+                            cursor: "pointer"
                         }}
                     >
-                        Focus
+                        All
                     </button>
+                )}
 
-                    {selectedCode && (
-                        <button
-                            type="button"
-                            onClick={
-                                clearSelection
-                            }
-                            style={{
-                                border:
-                                    "1px solid #d1d5db",
-                                background:
-                                    "white",
-                                borderRadius: 5,
-                                padding:
-                                    "7px 10px",
-                                cursor: "pointer",
-                            }}
-                        >
-                            All
-                        </button>
-                    )}
-                </form>
+            </form>
 
+
+            {/* STATUS */}
+            {(loading || routeLoading) && (
                 <div
                     style={{
-                        marginTop: 7,
-                        fontSize: 11,
-                        color: "#4b5563",
+                        position: "absolute",
+                        zIndex: 1000,
+                        bottom: 12,
+                        left: 12,
+                        background: "#ffffff",
+                        padding:
+                            "7px 10px",
+                        borderRadius: 5,
+                        boxShadow:
+                            "0 2px 8px rgba(0,0,0,0.15)",
+                        fontSize: 12
                     }}
                 >
-                    {simulatorTime
-                        ? `Simulator: ${String(
-                              simulatorTime
-                          ).replace(
-                              "T",
-                              " "
-                          )}`
-                        : "Simulation time unavailable"}
+                    Loading fleet routes...
                 </div>
+            )}
 
-                {loading && (
-                    <div
-                        style={{
-                            marginTop: 5,
-                            fontSize: 11,
-                            color: "#2563eb",
-                        }}
-                    >
-                        Loading movement...
-                    </div>
-                )}
 
-                {error && (
-                    <div
-                        style={{
-                            marginTop: 6,
-                            color: "#b91c1c",
-                            fontSize: 11,
-                        }}
-                    >
-                        {error}
-                    </div>
-                )}
-            </div>
+            {error && (
+                <div
+                    style={{
+                        position: "absolute",
+                        zIndex: 1000,
+                        bottom: 12,
+                        left: 12,
+                        background:
+                            "#fff3f3",
+                        color: "#b42318",
+                        padding:
+                            "8px 10px",
+                        borderRadius: 5,
+                        fontSize: 12
+                    }}
+                >
+                    {error}
+                </div>
+            )}
 
+
+            {/* FLEET COUNT */}
             <div
                 style={{
                     position: "absolute",
@@ -705,269 +663,374 @@ export default function TrackingMap({
                     top: 12,
                     left: 55,
                     background:
-                        "rgba(255,255,255,.94)",
-                    padding: "7px 10px",
+                        "rgba(255,255,255,0.94)",
+                    padding:
+                        "7px 11px",
                     borderRadius: 5,
                     boxShadow:
-                        "0 2px 8px rgba(0,0,0,.12)",
+                        "0 2px 8px rgba(0,0,0,0.12)",
                     fontSize: 12,
-                    fontWeight: 600,
+                    fontWeight: 600
                 }}
             >
                 {trains.length} trains ·{" "}
                 {trucks.length} trucks
             </div>
 
+
             <MapContainer
                 center={mapCenter}
-                zoom={5}
-                scrollWheelZoom
+                zoom={6}
+                scrollWheelZoom={true}
                 style={{
                     width: "100%",
-                    height: "100%",
-                    minHeight: 620,
+                    height: "100%"
                 }}
             >
+
                 <TileLayer
                     attribution='&copy; OpenStreetMap contributors'
                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                 />
 
-                <FleetFitter
-                    movements={allMovements}
-                    selectedMovementCode={
-                        selectedCode
-                    }
-                />
 
-                <SelectedFitter
-                    points={selectedRoute}
-                    active={
-                        Boolean(selectedCode) &&
-                        selectedRoute.length >= 2
-                    }
-                />
+                {/* ALL CURRENT VEHICLES */}
 
-                {/* EVERY DAILY ROUTE */}
-                {dailyRoutes.map((route) => {
-                    const selected =
-                        selectedRouteId !==
-                            null &&
-                        selectedRouteId !==
-                            undefined &&
-                        String(
-                            selectedRouteId
-                        ) === route.routeId;
-
-                    return (
-                        <Polyline
-                            key={`daily-route-${route.routeId}`}
-                            positions={
-                                route.points
-                            }
-                            pathOptions={{
-                                color: selected
-                                    ? "#64748b"
-                                    : "#6b7280",
-                                weight: selected
-                                    ? 3
-                                    : 2,
-                                opacity: selected
-                                    ? 0.30
-                                    : 0.18,
-                                dashArray:
-                                    "6 8",
-                            }}
-                        />
-                    );
-                })}
-
-                {/* SELECTED MOVEMENT PATH */}
-                {selectedCode &&
-                    selectedRoute.length >= 2 && (
-                        <Polyline
-                            positions={
-                                selectedRoute
-                            }
-                            pathOptions={{
-                                color: "#2563eb",
-                                weight: 7,
-                                opacity: 0.95,
-                            }}
-                        />
-                    )}
-
-                {/* SELECTED SOURCE */}
-                {selectedCode &&
-                    selectedSource && (
-                        <Marker
-                            position={
-                                selectedSource
-                            }
-                            icon={sourceIcon}
-                        >
-                            <Tooltip>
-                                Source
-                            </Tooltip>
-                            <Popup>
-                                <strong>
-                                    Source
-                                </strong>
-                                <br />
-                                {
-                                    selectedMovement?.source_name
-                                }
-                            </Popup>
-                        </Marker>
-                    )}
-
-                {/* SELECTED DESTINATION */}
-                {selectedCode &&
-                    selectedDestination && (
-                        <Marker
-                            position={
-                                selectedDestination
-                            }
-                            icon={
-                                destinationIcon
-                            }
-                        >
-                            <Tooltip>
-                                Destination
-                            </Tooltip>
-                            <Popup>
-                                <strong>
-                                    Destination
-                                </strong>
-                                <br />
-                                {
-                                    selectedMovement?.destination_name
-                                }
-                            </Popup>
-                        </Marker>
-                    )}
-
-                {/* EVERY DAILY VEHICLE */}
                 {allMovements.map(
-                    (movement) => {
-                        const position =
-                            getPosition(
-                                movement
+                    (item) => {
+                        const lat =
+                            Number(
+                                item.latitude
                             );
 
-                        if (!position) {
+                        const lng =
+                            Number(
+                                item.longitude
+                            );
+
+                        if (
+                            !Number.isFinite(
+                                lat
+                            ) ||
+                            !Number.isFinite(
+                                lng
+                            )
+                        ) {
                             return null;
                         }
 
-                        const code =
-                            getMovementCode(
-                                movement
-                            );
-
                         const isTruck =
                             String(
-                                movement?.movement_type
+                                item.movement_type
                             ).toUpperCase() ===
-                                "ROAD" ||
-                            code.startsWith(
-                                "SIM-T"
-                            );
+                            "ROAD";
 
-                        const selected =
-                            code ===
-                            selectedCode;
+                        const isSelected =
+                            String(
+                                item.movement_code
+                            ).toUpperCase() ===
+                            String(
+                                movementCode
+                            ).toUpperCase();
 
                         return (
                             <Marker
-                                key={code}
-                                position={
-                                    position
+                                key={
+                                    item.movement_code
                                 }
+                                position={[
+                                    lat,
+                                    lng
+                                ]}
                                 icon={
                                     isTruck
                                         ? truckIcon
                                         : trainIcon
                                 }
-                                zIndexOffset={
-                                    selected
-                                        ? 1000
-                                        : 0
-                                }
                                 eventHandlers={{
                                     click: () => {
-                                        setSearchCode(
-                                            code
+                                        setMovementCode(
+                                            item.movement_code
                                         );
-
-                                        if (
-                                            onMovementSelect
-                                        ) {
-                                            onMovementSelect(
-                                                code
-                                            );
-                                        }
-                                    },
+                                        setSearchCode(
+                                            item.movement_code
+                                        );
+                                        setMovement(
+                                            item
+                                        );
+                                        setFocusMovement(
+                                            true
+                                        );
+                                        setError("");
+                                    }
                                 }}
                             >
-                                <Tooltip>
-                                    <strong>
-                                        {code}
-                                    </strong>
+
+                                <Tooltip
+                                    direction="top"
+                                    offset={[0, -15]}
+                                >
+                                    <strong>{item.movement_code}</strong>
                                     <br />
-                                    {
-                                        movement?.source_name
-                                    }{" "}
-                                    →{" "}
-                                    {
-                                        movement?.destination_name
-                                    }
+                                    {item.replay_status ?? item.master_status ?? "-"}
+                                    <br />
+                                    <strong>ML-predicted delay:</strong>{" "}
+                                    {item.predicted_delay_min != null
+                                        ? `${Number(item.predicted_delay_min).toFixed(1)} min`
+                                        : "N/A"}
+                                    <br />
+                                    <strong>Predicted ETA:</strong>{" "}
+                                    {item.predicted_eta
+                                        ? new Date(item.predicted_eta).toLocaleTimeString([], {
+                                              hour: "2-digit",
+                                              minute: "2-digit",
+                                          })
+                                        : "N/A"}
                                 </Tooltip>
 
+
                                 <Popup>
-                                    <strong>
-                                        {code}
-                                    </strong>
 
-                                    <div>
-                                        {
-                                            movement?.source_name
-                                        }{" "}
-                                        →{" "}
-                                        {
-                                            movement?.destination_name
-                                        }
+                                    <div
+                                        style={{
+                                            minWidth: 220
+                                        }}
+                                    >
+
+                                        <h3
+                                            style={{
+                                                marginTop: 0
+                                            }}
+                                        >
+                                            {
+                                                item.movement_code
+                                            }
+                                        </h3>
+
+                                        <p>
+                                            <strong>
+                                                Mode:
+                                            </strong>{" "}
+                                            {isTruck
+                                                ? "ROAD"
+                                                : "RAIL"}
+                                        </p>
+
+                                        <p>
+                                            <strong>
+                                                Route:
+                                            </strong>{" "}
+                                            {
+                                                item.source_name
+                                            }
+                                            {" → "}
+                                            {
+                                                item.destination_name
+                                            }
+                                        </p>
+
+                                        <p>
+                                            <strong>
+                                                Status:
+                                            </strong>{" "}
+                                            {
+                                                item.replay_status ??
+                                                item.master_status ??
+                                                "-"
+                                            }
+                                        </p>
+
+                                        <p>
+                                            <strong>
+                                                Speed:
+                                            </strong>{" "}
+                                            {
+                                                item.speed_kmph ??
+                                                0
+                                            } km/h
+                                        </p>
+
+                                        <p>
+                                            <strong>Actual delay:</strong>{" "}
+                                            {item.delay_min ?? 0} min
+                                        </p>
+
+                                        <p>
+                                            <strong>ML-predicted delay:</strong>{" "}
+                                            {item.predicted_delay_min != null
+                                                ? `${Number(item.predicted_delay_min).toFixed(2)} min`
+                                                : "Not available"}
+                                        </p>
+
+                                        <p>
+                                            <strong>Predicted ETA:</strong>{" "}
+                                            {item.predicted_eta
+                                                ? new Date(item.predicted_eta).toLocaleString()
+                                                : "Not available"}
+                                        </p>
+
+                                        <p>
+                                            <strong>
+                                                Distance left:
+                                            </strong>{" "}
+                                            {
+                                                item.distance_remaining_km ??
+                                                "-"
+                                            } km
+                                        </p>
+
+                                        {!isTruck && (
+                                            <>
+                                                <p>
+                                                    <strong>
+                                                        Wagons:
+                                                    </strong>{" "}
+                                                    {
+                                                        item.wagon_count ??
+                                                        "-"
+                                                    }
+                                                </p>
+
+                                                <p>
+                                                    <strong>
+                                                        Coal:
+                                                    </strong>{" "}
+                                                    {
+                                                        item.tonnage ??
+                                                        "-"
+                                                    } t
+                                                </p>
+                                            </>
+                                        )}
+
+                                        {isTruck && (
+                                            <p>
+                                                <strong>
+                                                    Load:
+                                                </strong>{" "}
+                                                {
+                                                    item.tonnage ??
+                                                    "-"
+                                                } t
+                                            </p>
+                                        )}
+
                                     </div>
 
-                                    <div>
-                                        Status:{" "}
-                                        {
-                                            movement?.replay_status ??
-                                            "-"
-                                        }
-                                    </div>
-
-                                    <div>
-                                        Speed:{" "}
-                                        {
-                                            movement?.speed_kmph ??
-                                            0
-                                        } km/h
-                                    </div>
-
-                                    <div>
-                                        Telemetry:{" "}
-                                        {
-                                            movement?.nearest_telemetry_timestamp ??
-                                            movement?.telemetry_time ??
-                                            "-"
-                                        }
-                                    </div>
                                 </Popup>
+
                             </Marker>
                         );
                     }
                 )}
+
+
+                {/* FLEET FIT */}
+
+                {!focusMovement &&
+                    markerPositions.length > 0 && (
+                        <FleetMapFitter
+                            positions={
+                                markerPositions
+                            }
+                        />
+                    )}
+
+
+                {/* ALL MOVEMENT ROUTES */}
+
+                {Object.entries(routesByMovement).map(
+                    ([code, points]) => {
+                        if (!points || points.length < 2) {
+                            return null;
+                        }
+
+                        const isSelected =
+                            String(code).toUpperCase() ===
+                            String(movementCode).toUpperCase();
+
+                        const routeMovement =
+                            allMovements.find(
+                                (item) =>
+                                    String(item.movement_code).toUpperCase() ===
+                                    String(code).toUpperCase()
+                            );
+
+                        const routeIsTruck =
+                            String(
+                                routeMovement?.movement_type ||
+                                routeMovement?.mode ||
+                                ""
+                            ).toUpperCase() === "ROAD";
+
+                        return (
+                            <Polyline
+                                key={`route-${code}`}
+                                positions={points}
+                                pathOptions={{
+                                    color: isSelected
+                                        ? "#111827"
+                                        : routeIsTruck
+                                            ? "#e67e22"
+                                            : "#1769aa",
+                                    weight: isSelected ? 7 : 3,
+                                    opacity: isSelected ? 1 : 0.5
+                                }}
+                            />
+                        );
+                    }
+                )}
+
+
+                {/* SELECTED MOVEMENT FOCUS */}
+
+                {focusMovement && selectedRoute.length >= 2 && (
+                    <SelectedRouteFitter points={selectedRoute} />
+                )}
+
+                {/* SOURCE PIN: shown for the selected movement even when route
+                    geometry is unavailable; hover over the pin for its name. */}
+                {focusMovement && sourcePosition && (
+                    <Marker
+                        position={sourcePosition}
+                        icon={sourceIcon}
+                        zIndexOffset={1000}
+                    >
+                        <Tooltip direction="top" offset={[0, -8]}>
+                            <strong>Source:</strong> {sourceName}
+                        </Tooltip>
+                        <Popup>
+                            <strong>Source</strong>
+                            <br />
+                            {sourceName}
+                        </Popup>
+                    </Marker>
+                )}
+
+                {/* DESTINATION PIN: shown for the selected movement even when
+                    route geometry is unavailable; hover over the pin for its name. */}
+                {focusMovement && destinationPosition && (
+                    <Marker
+                        position={destinationPosition}
+                        icon={destinationIcon}
+                        zIndexOffset={1000}
+                    >
+                        <Tooltip direction="top" offset={[0, -8]}>
+                            <strong>Destination:</strong> {destinationName}
+                        </Tooltip>
+                        <Popup>
+                            <strong>Destination</strong>
+                            <br />
+                            {destinationName}
+                        </Popup>
+                    </Marker>
+                )}
+
             </MapContainer>
+
         </div>
     );
 }
+
+
+export default TrackingMap;

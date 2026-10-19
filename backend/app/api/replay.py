@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import text
 
 from app.database.connection import get_engine
+from app.ml.eta_model import get_eta_predictor
 
 
 router = APIRouter(
@@ -276,6 +277,61 @@ def _movement_row(
         min(1.0, progress),
     )
 
+    predicted_delay_min = None
+    predicted_eta = None
+
+    # Only predict for movements that have not yet arrived and still have
+    # distance remaining. Actual recorded delay remains in delay_min; the
+    # model output is kept separately in predicted_delay_min.
+    is_active = (
+        departure <= sim_time < arrival
+        and remaining > 0
+    )
+
+    if is_active:
+        try:
+            predictor = get_eta_predictor()
+            average_speed = speed if speed > 0 else (
+                distance / max(
+                    (arrival - departure).total_seconds() / 3600,
+                    1 / 60,
+                )
+            )
+            prediction = predictor.predict(
+                distance_remaining_km=max(0.0, remaining),
+                current_speed_kmph=max(0.0, speed),
+                average_speed_kmph=max(0.0, average_speed),
+                previous_delay_min=max(0.0, delay_min),
+                dwell_time_min=0.0,
+                temperature_c=25.0,
+                humidity_pct=60.0,
+                rain_mm=0.0,
+                wind_speed_kmph=0.0,
+                traffic_level="NONE",
+                hour_of_day=sim_time.hour,
+                day_of_week=sim_time.weekday(),
+            )
+            predicted_delay_min = prediction.get(
+                "predicted_delay_minutes"
+            )
+            travel_minutes = prediction.get(
+                "predicted_travel_minutes"
+            )
+            if travel_minutes is not None:
+                from datetime import timedelta
+                predicted_eta = (
+                    sim_time + timedelta(minutes=float(travel_minutes))
+                ).isoformat()
+        except (FileNotFoundError, ValueError, TypeError, KeyError) as exc:
+            # Keep replay available if model artifacts are missing or invalid.
+            # The fields stay null so the UI won't mistake actual delay for a prediction.
+            import logging
+            logging.getLogger(__name__).warning(
+                "ML prediction unavailable for %s: %s",
+                row["movement_code"],
+                exc,
+            )
+
     return {
         "movement_type": row["movement_type"],
         "movement_code": row["movement_code"],
@@ -294,9 +350,7 @@ def _movement_row(
         "actual_arrival": _iso(arrival),
         "requested_timestamp": sim_time.isoformat(),
         "telemetry_time": _iso(telemetry_time),
-        "nearest_telemetry_timestamp": _iso(
-            telemetry_time
-        ),
+        "nearest_telemetry_timestamp": _iso(telemetry_time),
         "latitude": latitude,
         "longitude": longitude,
         "speed_kmph": speed,
@@ -305,8 +359,8 @@ def _movement_row(
         "replay_status": replay_status,
         "delay_min": delay_min,
         "previous_delay_min": delay_min,
-        "predicted_delay_min": None,
-        "predicted_eta": None,
+        "predicted_delay_min": predicted_delay_min,
+        "predicted_eta": predicted_eta,
         "progress": progress,
         "segment": segment,
         "source": "SIMULATION_REPLAY_NEAREST_TELEMETRY",
